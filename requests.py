@@ -55,7 +55,7 @@ super_sp_add = on_command('指定词条+', priority=2, aliases={'/susp+', '/su�
 @super_sp_add.handle()
 async def _(matcher: Matcher, event: MessageEvent):
     msg = str(event.get_message()).split()
-    logger.info(str(len(msg)), msg)
+    logger.info(f"{len(msg)} {msg}")
     if len(msg) == 3:
         gid = msg[1]
         answer = msg[2]
@@ -206,7 +206,7 @@ group_req = on_request(priority=2, block=True)
 async def gr_(bot: Bot, matcher: Matcher, event: GroupRequestEvent):
     gid = str(event.group_id)
     flag = event.flag
-    logger.info('flag:', str(flag))
+    logger.info(f"flag: {flag}")
     sub_type = event.sub_type
     if sub_type == 'add':
         comment = event.comment

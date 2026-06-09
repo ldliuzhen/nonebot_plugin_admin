@@ -45,7 +45,7 @@ try:
     send_group_id = _config_group_ids(get_driver().config.send_group_id)  # <-填写需要收发的QQ群号,利用for循环遍历发送
 except Exception as e:
     send_group_id = []
-    logger.error("ValueError:{}", e)
+    logger.error(f"ValueError: {e}")
     logger.error('请配置send_group_id')
 
 # 开关 默认全开
@@ -129,7 +129,7 @@ async def send_morning():
                 logger.info('群聊推送消息')
                 sendSuccess = True
         except ValueError as E:
-            logger.error("ValueError:{}", E)
+            logger.error(f"ValueError: {E}")
             logger.error('群聊推送消息插件获取bot失败，1s后重试')
             await asyncio.sleep(1)  # 重试前时延，防止阻塞
 
@@ -166,7 +166,7 @@ async def send_night():
                 logger.info('群聊推送消息')
                 sendSuccess = True
         except ValueError as E:
-            logger.error("ValueError:{}", E)
+            logger.error(f"ValueError: {E}")
             logger.error('群聊推送消息插件获取bot失败，1s后重试')
             await asyncio.sleep(1)  # 重试前时延，防止阻塞
 
