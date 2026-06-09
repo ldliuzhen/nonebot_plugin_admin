@@ -1,0 +1,2 @@
+# nonebot_plugin_admin
+用于AstrBot的QQ群管插件，从NoneBot插件中的nonebot_plugin_admin迁移而来
