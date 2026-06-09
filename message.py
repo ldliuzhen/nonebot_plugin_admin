@@ -4,11 +4,46 @@ from typing import Union
 from nonebot.adapters import Bot
 from nonebot.adapters.onebot.v11 import GroupMessageEvent
 
+
+_CQ_AT_RE = re.compile(r"\[CQ:at,[^\]]*?(?:qq|user_id)=([^,\]]+)[^\]]*\]")
+
+
+def extract_at_targets(text: str) -> list:
+    targets = []
+    for target in _CQ_AT_RE.findall(str(text or "")):
+        target = str(target).strip()
+        if target == 'all':
+            targets.append('all')
+            continue
+        try:
+            targets.append(int(target))
+        except (TypeError, ValueError):
+            continue
+    return targets
+
+
+def strip_cq_at_text(text: str) -> str:
+    return _CQ_AT_RE.sub(' ', str(text or ''))
+
+
+def normalize_cq_at_text(text: str) -> str:
+    def repl(match: re.Match) -> str:
+        target = match.group(1).strip()
+        return f" {target} " if target else " "
+
+    return _CQ_AT_RE.sub(repl, str(text or ''))
+
+
+def _append_unique(targets: list, target) -> None:
+    if target not in targets:
+        targets.append(target)
+
+
 async def msg_text(event: GroupMessageEvent) -> str:
-    return event.get_plaintext()
+    return strip_cq_at_text(event.get_plaintext())
 
 async def msg_text_no_url(event: GroupMessageEvent) -> str:
-    msg = event.get_plaintext()
+    msg = strip_cq_at_text(event.get_plaintext())
     no_url = re.sub(r'https?://[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]', '', msg)
     return re.sub(r'\s+', '', no_url)
 
@@ -45,12 +80,15 @@ async def msg_at(event: GroupMessageEvent) -> list:
         if msg.type == 'at':
             target = msg.data.get('qq') or msg.data.get('user_id')
             if str(target) == 'all':
-                qq.append('all')
+                _append_unique(qq, 'all')
                 continue
             try:
-                qq.append(int(target))
+                _append_unique(qq, int(target))
             except (TypeError, ValueError):
                 continue
+    for text in (getattr(event, 'raw_message', ''), str(event.get_message())):
+        for target in extract_at_targets(text):
+            _append_unique(qq, target)
     return qq
 
 async def msg_reply(event: GroupMessageEvent) -> Union[int, None]:

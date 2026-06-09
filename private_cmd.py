@@ -23,6 +23,7 @@ from .cleanup_selection import parse_cleanup_selection
 from .config import global_config
 from .path import (pm_bindings_path, switcher_path, admin_funcs,
                    kick_lock_path, config_admin)
+from .message import normalize_cq_at_text
 from .utils import (json_load, json_upload, mute_sb,
                     get_all_deputy_perms, set_deputy_perm, _DEPUTY_OPS)
 
@@ -32,7 +33,7 @@ NEW_MEMBER_DAYS = 30
 
 def _is_private():
     async def _checker(event: PrivateMessageEvent) -> bool:
-        return True
+        return isinstance(event, PrivateMessageEvent)
     return Rule(_checker)
 
 
@@ -63,6 +64,14 @@ def _del_binding(uid: str) -> bool:
 
 def _is_su(uid) -> bool:
     return str(uid) in su or uid in su
+
+
+def _arg_text(args: Message) -> str:
+    return normalize_cq_at_text(str(args)).strip()
+
+
+def _arg_parts(args: Message) -> list[str]:
+    return _arg_text(args).split()
 
 
 async def _check_perm(bot: Bot, uid: int, gid: str) -> bool:
@@ -161,7 +170,7 @@ pm_ban = on_command('禁', priority=1, rule=_rule, block=True)
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid(bot, matcher, event)
-    parts = str(args).strip().split()
+    parts = _arg_parts(args)
     if not parts or not parts[0].isdigit():
         await matcher.finish('格式：/禁 QQ号 [时间(秒)]')
     target = int(parts[0])
@@ -182,11 +191,11 @@ pm_unban = on_command('解', priority=1, rule=_rule, block=True)
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid(bot, matcher, event)
-    text = str(args).strip()
-    if not text.isdigit():
+    parts = _arg_parts(args)
+    if not parts or not parts[0].isdigit():
         await matcher.finish('格式：/解 QQ号')
     try:
-        async for action in mute_sb(bot, int(gid), lst=[int(text)], time=0):
+        async for action in mute_sb(bot, int(gid), lst=[int(parts[0])], time=0):
             if action:
                 await action
         await matcher.finish('解禁操作成功')
@@ -221,7 +230,7 @@ pm_kick = on_command('踢', priority=1, rule=_rule, block=True)
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid(bot, matcher, event)
-    targets = str(args).strip().split()
+    targets = _arg_parts(args)
     if not targets:
         await matcher.finish('格式：/踢 QQ号 [QQ号2 ...]')
     for qq in targets:
@@ -247,7 +256,7 @@ pm_kick_black = on_command('黑', priority=1, rule=_rule, block=True)
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid(bot, matcher, event)
-    targets = str(args).strip().split()
+    targets = _arg_parts(args)
     if not targets:
         await matcher.finish('格式：/黑 QQ号 [QQ号2 ...]')
     for qq in targets:
@@ -275,7 +284,7 @@ pm_change = on_command('改', priority=1, rule=_rule, block=True)
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid(bot, matcher, event)
-    parts = str(args).strip().split(maxsplit=1)
+    parts = _arg_text(args).split(maxsplit=1)
     if len(parts) < 2 or not parts[0].isdigit():
         await matcher.finish('格式：/改 QQ号 新名片')
     target, card = int(parts[0]), parts[1]
@@ -296,7 +305,7 @@ pm_set_admin = on_command('管理员+', priority=1,
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid_owner(bot, matcher, event)
-    targets = str(args).strip().split()
+    targets = _arg_parts(args)
     if not targets:
         await matcher.finish('格式：/管理员+ QQ号')
     for qq in targets:
@@ -318,7 +327,7 @@ pm_unset_admin = on_command('管理员-', priority=1,
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid_owner(bot, matcher, event)
-    targets = str(args).strip().split()
+    targets = _arg_parts(args)
     if not targets:
         await matcher.finish('格式：/管理员- QQ号')
     for qq in targets:
@@ -342,7 +351,7 @@ pm_deputy_add = on_command('分管+', priority=1,
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid(bot, matcher, event)
-    targets = str(args).strip().split()
+    targets = _arg_parts(args)
     if not targets:
         await matcher.finish('格式：/分管+ QQ号')
     for qq in targets:
@@ -365,7 +374,7 @@ pm_deputy_del = on_command('分管-', priority=1,
 async def _(bot: Bot, matcher: Matcher, event: PrivateMessageEvent,
             args: Message = CommandArg()):
     gid = await _bound_gid(bot, matcher, event)
-    targets = str(args).strip().split()
+    targets = _arg_parts(args)
     if not targets:
         await matcher.finish('格式：/分管- QQ号')
     for qq in targets:
