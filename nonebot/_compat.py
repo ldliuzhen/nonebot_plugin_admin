@@ -203,11 +203,21 @@ class Permission:
     async def __call__(self, event: "Event") -> bool:
         if not self.checkers:
             return True
-        results = []
+        if self.mode == "any":
+            for checker in self.checkers:
+                try:
+                    if bool(await _maybe_await(_call_checker(checker, event=event))):
+                        return True
+                except Exception:
+                    continue
+            return False
         for checker in self.checkers:
-            result = await _maybe_await(_call_checker(checker, event=event))
-            results.append(bool(result))
-        return any(results) if self.mode == "any" else all(results)
+            try:
+                if not bool(await _maybe_await(_call_checker(checker, event=event))):
+                    return False
+            except Exception:
+                return False
+        return True
 
 
 class Rule:
@@ -538,6 +548,8 @@ class Bot:
         if target_event is not None and isinstance(target_event, GroupMessageEvent):
             if kwargs.get("at_sender"):
                 message = Message([MessageSegment.at(target_event.user_id)]) + message
+            if getattr(target_event, "_astr_event", None) is not None and _message_has_segment(message, "at"):
+                return await self.send_group_msg(group_id=target_event.group_id, message=message)
         if target_event is not None and getattr(target_event, "_astr_event", None) is not None:
             return await _send_astr(target_event._astr_event, message)
         if isinstance(target_event, GroupMessageEvent):
@@ -569,6 +581,13 @@ def _to_onebot_message(message: Any) -> Any:
     if isinstance(message, list):
         return Message(message).to_onebot()
     return str(message)
+
+
+def _message_has_segment(message: Any, segment_type: str) -> bool:
+    try:
+        return any(segment.type == segment_type for segment in Message(message))
+    except Exception:
+        return False
 
 
 async def _send_astr(astr_event: Any, message: Any) -> Any:
@@ -867,7 +886,7 @@ async def _match(matcher: Matcher, bot: Bot, event: Event) -> tuple[bool, Messag
 def _match_command(matcher: Matcher, event: Event) -> tuple[bool, Message]:
     text = str(getattr(event, "raw_message", "") or "")
     stripped = text.lstrip()
-    prefixes = ("", "/", "!", "!", "！", "／")
+    prefixes = ("/",)
     for command in sorted(matcher.commands, key=len, reverse=True):
         candidates: list[str] = []
         if str(command).startswith("/"):
