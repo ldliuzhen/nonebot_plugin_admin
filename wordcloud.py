@@ -6,9 +6,11 @@
 # @File    : wordcloud.py
 # @Software: PyCharm
 import asyncio
+import importlib
 import json
 import os
 import random
+import sys
 
 try:
     import httpx
@@ -26,6 +28,43 @@ from .path import *
 from .utils import participle_simple_handle, json_load, json_upload, resolve_group_alias
 
 cloud = on_command('群词云', priority=2, block=True)
+
+
+def _load_wordcloud_lib():
+    plugin_dir = Path(__file__).resolve().parent
+    current_file = Path(__file__).resolve()
+    original_path = list(sys.path)
+    cached_module = sys.modules.get("wordcloud")
+    removed_cached = False
+
+    if cached_module is not None:
+        module_file = getattr(cached_module, "__file__", "")
+        try:
+            if module_file and Path(module_file).resolve() == current_file:
+                removed_cached = True
+                sys.modules.pop("wordcloud", None)
+        except Exception:
+            pass
+
+    def is_plugin_path(path_item: str) -> bool:
+        try:
+            return Path(path_item or ".").resolve() == plugin_dir
+        except Exception:
+            return False
+
+    loaded = False
+    try:
+        sys.path = [item for item in sys.path if not is_plugin_path(item)]
+        module = importlib.import_module("wordcloud")
+        module_file = getattr(module, "__file__", "")
+        if module_file and Path(module_file).resolve() == current_file:
+            raise ModuleNotFoundError("third-party wordcloud package is shadowed by plugin module")
+        loaded = True
+        return module.WordCloud, module.ImageColorGenerator
+    finally:
+        sys.path = original_path
+        if removed_cached and not loaded and cached_module is not None:
+            sys.modules["wordcloud"] = cached_module
 
 
 def _load_wc_block(gid: str) -> list[str]:
@@ -110,7 +149,7 @@ async def _(bot, event: GroupMessageEvent, matcher: Matcher, args: Message = Com
         gid = target_gid_str
 
     try:
-        from wordcloud import WordCloud, ImageColorGenerator
+        _load_wordcloud_lib()
     except ModuleNotFoundError:
         await cloud.finish('未安装wordcloud库，请执行 pip install wordcloud')
 
@@ -208,7 +247,7 @@ def _migrate_txt_to_freq(txt_path: Path) -> dict:
 
 def _generate_cloud_from_freq(freq: dict, img_path: Path, font_path: str):
     try:
-        from wordcloud import WordCloud, ImageColorGenerator
+        WordCloud, ImageColorGenerator = _load_wordcloud_lib()
         from imageio import imread
 
         bg_file = random.choice(os.listdir(wordcloud_bg_path))

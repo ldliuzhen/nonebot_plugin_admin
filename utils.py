@@ -449,35 +449,46 @@ async def get_user_violation(gid: int, uid: int, label: str, content: str, add_:
     path_user = path_grop / f"{str(uid)}.json"
     this_time = str(datetime.datetime.now()).replace(' ', '-')
     uid = str(uid)
+    max_level = max(time_scop_map)
     if not os.path.exists(user_violation_info_path):
         await mk('dir', user_violation_info_path, mode=None)
     if not os.path.exists(path_grop):
         await mk('dir', path_grop, mode=None)
-        await vio_level_init(path_user, uid, this_time, label, content)
-        return 0
     try:
-        info = json_load(path_user)
-        level = info[uid]['level']
+        try:
+            info = json_load(path_user) or {}
+        except json.JSONDecodeError:
+            info = {}
+        if not isinstance(info, dict):
+            info = {}
+        user_info = info.get(uid)
+        if not isinstance(user_info, dict):
+            user_info = {'level': 0, 'info': {}}
+        try:
+            level = int(user_info.get('level', 0))
+        except (TypeError, ValueError):
+            level = 0
+        level = max(0, min(level, max_level))
+        history = user_info.get('info')
+        if not isinstance(history, dict):
+            history = {}
         if add_:
-            info[uid]['level'] += 1
-        info[uid]['info'][this_time] = [label, content]
+            level = min(level + 1, max_level)
+        history[this_time] = [label, content]
+        info[uid] = {'level': level, 'info': history}
         json_upload(path_user, info)
-        if level >= 998:
-            return 998
-        else:
-            return level
-    except FileNotFoundError:
-        await vio_level_init(path_user, uid, this_time, label, content)
-        return 0
+        return level
     except Exception as e:
         logger.error(f"获取用户违禁等级出错：{e}，尝试初始化此用户违禁等级")
-        await vio_level_init(path_user, uid, this_time, label, content)
-        return 0
+        level = 1 if add_ else 0
+        await vio_level_init(path_user, uid, this_time, label, content, level=level)
+        return level
 
 
-async def vio_level_init(path_user, uid, this_time, label, content) -> None:
+async def vio_level_init(path_user, uid, this_time, label, content, level: int = 0) -> None:
+    path_user.parent.mkdir(parents=True, exist_ok=True)
     with open(path_user, mode='w', encoding='utf-8') as c:
-        c.write(json.dumps({uid: {'level': 0, 'info': {this_time: [label, content]}}}, ensure_ascii=False))
+        c.write(json.dumps({uid: {'level': level, 'info': {this_time: [label, content]}}}, ensure_ascii=False))
 
 
 async def error_log(gid: int, time: str, matcher: Matcher, err: str) -> None:

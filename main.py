@@ -87,6 +87,41 @@ def _config_to_dict(config: Any) -> dict[str, Any]:
     return data
 
 
+def _is_plugin_path(path_item: str) -> bool:
+    try:
+        return Path(path_item or ".").resolve() == _PLUGIN_DIR
+    except Exception:
+        return False
+
+
+def _is_plugin_file(path_item: Any) -> bool:
+    if not path_item:
+        return False
+    try:
+        path = Path(path_item).resolve()
+        return path == _PLUGIN_DIR or _PLUGIN_DIR in path.parents
+    except Exception:
+        return False
+
+
+def _dependency_available(import_name: str) -> bool:
+    cached_module = sys.modules.get(import_name)
+    removed_cached = False
+    if cached_module is not None and _is_plugin_file(getattr(cached_module, "__file__", "")):
+        removed_cached = True
+        sys.modules.pop(import_name, None)
+
+    original_path = list(sys.path)
+    try:
+        sys.path = [item for item in sys.path if not _is_plugin_path(item)]
+        spec = importlib.util.find_spec(import_name)
+        return spec is not None and not _is_plugin_file(getattr(spec, "origin", ""))
+    finally:
+        sys.path = original_path
+        if removed_cached and import_name not in sys.modules and cached_module is not None:
+            sys.modules[import_name] = cached_module
+
+
 def _auto_install_dependencies(config: dict[str, Any]) -> None:
     enabled = config.get("auto_install_deps", True)
     if isinstance(enabled, str):
@@ -97,7 +132,7 @@ def _auto_install_dependencies(config: dict[str, Any]) -> None:
     missing = [
         package
         for import_name, package in _DEPENDENCIES.items()
-        if importlib.util.find_spec(import_name) is None
+        if not _dependency_available(import_name)
     ]
     if not missing:
         return
