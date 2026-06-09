@@ -1,0 +1,110 @@
+{
+  "auto_install_deps": {
+    "description": "启动插件时是否自动检查并安装缺少的 pip 依赖。",
+    "type": "bool",
+    "hint": "开启后会优先使用腾讯云 PyPI 镜像，失败后自动切换清华大学 PyPI 镜像。",
+    "default": true
+  },
+  "superusers": {
+    "description": "超级用户 QQ 号列表。拥有插件的最高管理权限。",
+    "type": "list",
+    "hint": "示例：[\"123456789\", \"987654321\"]",
+    "default": []
+  },
+  "tenid": {
+    "description": "腾讯云图片安全 SecretId。用于图片检测功能。",
+    "type": "string",
+    "hint": "如果不使用图片检测，可以保持默认值。",
+    "default": "xxxxxx"
+  },
+  "tenkeys": {
+    "description": "腾讯云图片安全 SecretKey。用于图片检测功能。",
+    "type": "string",
+    "hint": "如果不使用图片检测，可以保持默认值。",
+    "default": "xxxxxx"
+  },
+  "img_check_rules_json": {
+    "description": "图片检测处置规则，JSON 数组格式。可按 label、scene、sub_label 和分值阈值决定是否撤回、禁言。",
+    "type": "string",
+    "hint": "示例：把 Sexy 的 enabled 改为 true，即可在 Sexy 分值达到 90 时按规则处理；mute_seconds 为 0 表示使用违规等级自动时长。",
+    "default": "[{\"name\":\"色情\",\"label\":\"Porn\",\"score\":90,\"recall\":true,\"mute\":true,\"mute_seconds\":0},{\"name\":\"涉政\",\"label\":\"Politics\",\"score\":90,\"recall\":true,\"mute\":true,\"mute_seconds\":0},{\"name\":\"性感\",\"label\":\"Sexy\",\"score\":90,\"recall\":true,\"mute\":true,\"mute_seconds\":0,\"enabled\":false}]"
+  },
+  "callback_notice": {
+    "description": "操作完成后是否在聊天中发送结果提示。",
+    "type": "bool",
+    "hint": "关闭后，禁言、踢人等操作成功时会减少提示消息。",
+    "default": true
+  },
+  "ban_rand_time_min": {
+    "description": "随机禁言的最短时间，单位为秒。",
+    "type": "int",
+    "hint": "当命令没有指定禁言时长时，会在最短和最长时间之间随机。",
+    "default": 60
+  },
+  "ban_rand_time_max": {
+    "description": "随机禁言的最长时间，单位为秒。",
+    "type": "int",
+    "hint": "默认 2591999 秒，约 30 天。",
+    "default": 2591999
+  },
+  "host": {
+    "description": "旧 NoneBot 配置兼容项：主机地址。",
+    "type": "string",
+    "hint": "通常不用修改，仅用于兼容旧代码读取 get_driver().config.host。",
+    "default": "127.0.0.1"
+  },
+  "port": {
+    "description": "旧 NoneBot 配置兼容项：端口号。",
+    "type": "int",
+    "hint": "通常不用修改，仅用于兼容旧代码读取 get_driver().config.port。",
+    "default": 8080
+  },
+  "send_group_id": {
+    "description": "早安 / 晚安定时推送的目标群号列表。",
+    "type": "list",
+    "hint": "示例：[\"123456789\"]。当前定时功能还需要 AstrBot 环境提供调度支持。",
+    "default": []
+  },
+  "send_switch_morning": {
+    "description": "是否开启早安定时推送。",
+    "type": "bool",
+    "hint": "当前定时功能还需要 AstrBot 环境提供调度支持。",
+    "default": false
+  },
+  "send_switch_night": {
+    "description": "是否开启晚安定时推送。",
+    "type": "bool",
+    "hint": "当前定时功能还需要 AstrBot 环境提供调度支持。",
+    "default": false
+  },
+  "send_mode": {
+    "description": "早安 / 晚安推送模式。",
+    "type": "int",
+    "hint": "1 表示从自定义句子中随机选择，2 表示调用一言接口。",
+    "default": 2
+  },
+  "send_sentence_morning": {
+    "description": "早安自定义句子列表。send_mode 为 1 时使用。",
+    "type": "list",
+    "hint": "示例：[\"早上好\", \"新的一天开始了\"]",
+    "default": []
+  },
+  "send_sentence_night": {
+    "description": "晚安自定义句子列表。send_mode 为 1 时使用。",
+    "type": "list",
+    "hint": "示例：[\"晚安\", \"早点休息\"]",
+    "default": []
+  },
+  "send_time_morning": {
+    "description": "早安推送时间。",
+    "type": "string",
+    "hint": "格式为“小时 分钟”，例如：7 0。",
+    "default": "7 0"
+  },
+  "send_time_night": {
+    "description": "晚安推送时间。",
+    "type": "string",
+    "hint": "格式为“小时 分钟”，例如：22 0。",
+    "default": "22 0"
+  }
+}

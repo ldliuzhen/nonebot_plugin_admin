@@ -1,0 +1,5 @@
+name: nonebot_plugin_admin
+desc: AstrBot wrapper for the original NoneBot group admin plugin
+version: 0.3.0-astrbot
+author: ldliuzhen
+repo: https://github.com/ldliuzhen/nonebot_plugin_admin

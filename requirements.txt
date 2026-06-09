@@ -1,0 +1,10 @@
+httpx
+pydantic
+jieba
+wordcloud
+imageio
+pillow
+jinja2
+pyppeteer
+tencentcloud-sdk-python
+fuzzyfinder
