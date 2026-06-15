@@ -443,6 +443,10 @@ class GroupAdminNoticeEvent(NoticeEvent):
     pass
 
 
+class GroupBanNoticeEvent(NoticeEvent):
+    pass
+
+
 class LuckyKingNotifyEvent(NoticeEvent):
     pass
 
@@ -1064,12 +1068,24 @@ def _message_data_from_astr(message_obj: Any, raw: dict[str, Any], astr_event: A
         "message_type": message_type,
         "group_id": int(group_id) if str(group_id).isdigit() else group_id,
         "user_id": int(raw.get("user_id") or sender.get("user_id") or 0),
-        "message_id": raw.get("message_id") or getattr(message_obj, "message_id", None),
+        "message_id": _extract_message_id(message_obj, raw),
         "message": message,
         "raw_message": raw_message,
         "sender": sender,
         "reply": _reply_from_raw_or_components(raw, message_obj),
     }
+
+
+def _extract_message_id(message_obj: Any, raw: dict[str, Any]) -> Any:
+    for key in ("message_id", "id", "messageId", "messageID"):
+        message_id = raw.get(key)
+        if message_id not in (None, ""):
+            return message_id
+    for attr in ("message_id", "id", "messageId", "messageID"):
+        message_id = getattr(message_obj, attr, None)
+        if message_id not in (None, ""):
+            return message_id
+    return None
 
 
 def _segments_from_astr(components: list[Any]) -> list[dict[str, Any]]:
@@ -1114,6 +1130,7 @@ def _notice_from_raw(raw: dict[str, Any]) -> NoticeEvent:
         "group_decrease": GroupDecreaseNoticeEvent,
         "group_increase": GroupIncreaseNoticeEvent,
         "group_admin": GroupAdminNoticeEvent,
+        "group_ban": GroupBanNoticeEvent,
         "notify": NoticeEvent,
     }
     if notice_type == "notify":
