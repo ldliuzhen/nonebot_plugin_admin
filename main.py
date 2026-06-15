@@ -186,7 +186,7 @@ def _install_packages(packages: list[str]) -> bool:
     "nonebot_plugin_admin",
     "ldliuzhen",
     "A migrated AstrBot wrapper for the original NoneBot group admin plugin.",
-    "0.3.1-astrbot",
+    "0.3.3-astrbot",
 )
 class NoneBotAdminPlugin(Star):
     def __init__(self, context: Context, config: Optional[Any] = None) -> None:
@@ -214,6 +214,7 @@ class NoneBotAdminPlugin(Star):
             "switcher",
             "admin",
             "auto_ban",
+            "auto_unban",
             "auto_reply",
             "broadcast",
             "cleanup",
