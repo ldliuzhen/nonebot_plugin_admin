@@ -7,15 +7,17 @@
 import json
 import os
 import hashlib
+import time
 from nonebot import logger, on_message
 from nonebot.adapters.onebot.v11.exception import ActionFailed, NetworkError
+from nonebot.exception import FinishedException
 from nonebot.matcher import Matcher
 from nonebot.params import Depends
 
 from .message import *
 from .path import *
 from .config import plugin_config
-from .utils import mute_sb, image_moderation_async, get_user_violation, sd, fi
+from .utils import mute_sb, image_moderation_async, get_user_violation, sd, fi, recall_event_message
 
 # ================= 配置缓存路径 =================
 CONFIG_DIR = str(config_path)
@@ -25,25 +27,115 @@ if not os.path.exists(CONFIG_DIR):
 
 CACHE_FILE = os.path.join(CONFIG_DIR, "img_check_cache.json")
 IMG_CACHE = {}
+CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def _cache_now() -> int:
+    return int(time.time())
+
+
+def _cache_timestamp(value, default: int) -> int:
+    try:
+        ts = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    return ts if ts > 0 else default
+
+
+def _is_cache_wrapper(value) -> bool:
+    return isinstance(value, dict) and "cached_at" in value and "result" in value
+
+
+def _normalize_cache_entry(value, now: int):
+    if _is_cache_wrapper(value):
+        cached_at = _cache_timestamp(value.get("cached_at"), now)
+        result = value.get("result")
+    else:
+        cached_at = now
+        result = value
+    if not isinstance(result, dict):
+        return None
+    return {"cached_at": cached_at, "result": result}
+
+
+def _normalize_cache_on_load(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    now = _cache_now()
+    normalized = {}
+    for key, value in raw.items():
+        entry = _normalize_cache_entry(value, now)
+        if entry is not None:
+            normalized[str(key)] = entry
+    return normalized
+
+
+def _cleanup_expired_cache() -> int:
+    now = _cache_now()
+    cutoff = now - CACHE_TTL_SECONDS
+    removed = 0
+    for key, value in list(IMG_CACHE.items()):
+        entry = _normalize_cache_entry(value, now)
+        if entry is None or entry["cached_at"] < cutoff:
+            IMG_CACHE.pop(key, None)
+            removed += 1
+            continue
+        if value is not entry:
+            IMG_CACHE[key] = entry
+    return removed
+
+
+def _write_cache_file():
+    with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(IMG_CACHE, f, ensure_ascii=False, separators=(',', ':'))
+
+
+def save_cache():
+    """保存缓存到本地文件，并清除超过30天的旧记录"""
+    try:
+        removed = _cleanup_expired_cache()
+        _write_cache_file()
+        if removed:
+            logger.info(f"已清理 {removed} 条超过30天的图片审核缓存")
+    except Exception as e:
+        logger.error(f"保存缓存失败: {e}")
+
+
+def get_cached_result(img_key: str):
+    entry = IMG_CACHE.get(img_key)
+    if entry is None:
+        return None
+    now = _cache_now()
+    normalized = _normalize_cache_entry(entry, now)
+    if normalized is None or normalized["cached_at"] < now - CACHE_TTL_SECONDS:
+        IMG_CACHE.pop(img_key, None)
+        save_cache()
+        return None
+    IMG_CACHE[img_key] = normalized
+    return normalized["result"]
+
+
+def set_cached_result(img_key: str, result: dict):
+    if not isinstance(result, dict):
+        return
+    IMG_CACHE[img_key] = {"cached_at": _cache_now(), "result": result}
+    save_cache()
 
 # 加载缓存
 if os.path.exists(CACHE_FILE):
     try:
         with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-            IMG_CACHE = json.load(f)
+            raw_cache = json.load(f)
+            IMG_CACHE = _normalize_cache_on_load(raw_cache)
+        removed = _cleanup_expired_cache()
+        if removed or raw_cache != IMG_CACHE:
+            _write_cache_file()
+        if removed:
+            logger.info(f"已清理 {removed} 条超过30天的图片审核缓存")
         logger.info(f"成功加载图片审核缓存，路径: {CACHE_FILE}，共 {len(IMG_CACHE)} 条记录")
     except Exception as e:
         logger.error(f"加载缓存失败: {e}")
         IMG_CACHE = {}
-
-def save_cache():
-    """保存缓存到本地文件"""
-    try:
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            # 极简模式：无缩进、无空格，最小化体积
-            json.dump(IMG_CACHE, f, ensure_ascii=False, separators=(',', ':'))
-    except Exception as e:
-        logger.error(f"保存缓存失败: {e}")
 
 def get_img_key(img_url: str) -> str:
     """生成图片的唯一Key (MD5)"""
@@ -151,6 +243,11 @@ def _match_img_rule(result: dict):
     _, rule, hit = max(matches, key=lambda item: item[0])
     return rule, hit
 
+
+def _mute_time_for_level(level) -> int:
+    level = max(0, min(_as_int(level), max(time_scop_map)))
+    return time_scop_map[level]
+
 find_pic = on_message(priority=2, block=False)
 @find_pic.handle()
 async def check_pic(bot: Bot, matcher: Matcher, event: GroupMessageEvent, img_lst: list = Depends(msg_img)):
@@ -162,9 +259,10 @@ async def check_pic(bot: Bot, matcher: Matcher, event: GroupMessageEvent, img_ls
         result = None
         
         # 1. 检查缓存
-        if img_key in IMG_CACHE:
+        cached_result = get_cached_result(img_key)
+        if cached_result is not None:
             logger.info(f"图片命中缓存，跳过API")
-            result = IMG_CACHE[img_key]
+            result = cached_result
         else:
             # 2. 缓存未命中，调用 API
             try:
@@ -174,8 +272,7 @@ async def check_pic(bot: Bot, matcher: Matcher, event: GroupMessageEvent, img_ls
                 
                 if raw_result:
                     result = _compact_moderation_result(raw_result)
-                    IMG_CACHE[img_key] = result
-                    save_cache()
+                    set_cached_result(img_key, result)
             except TypeError:
                 logger.error("请求图片安全接口失败")
                 continue
@@ -194,7 +291,7 @@ async def check_pic(bot: Bot, matcher: Matcher, event: GroupMessageEvent, img_ls
                 level = await get_user_violation(gid, event.user_id, label, event.raw_message)
                 mute_seconds = _as_int(rule.get("mute_seconds"), 0)
                 if mute_seconds <= 0:
-                    mute_seconds = time_scop_map[level]
+                    mute_seconds = _mute_time_for_level(level)
                 recall = _as_bool(rule.get("recall", True), True)
                 mute = _as_bool(rule.get("mute", True), True)
                 logger.info(
@@ -223,8 +320,13 @@ async def check_pic(bot: Bot, matcher: Matcher, event: GroupMessageEvent, img_ls
                     level = await get_user_violation(gid, event.user_id, top_label, event.raw_message, add_=False)
                     logger.info(f"{uid}发送的内容涉及{top_label}, 分值{top_score}, 违规等级{level}级，未命中处置规则")
             continue
+        except FinishedException:
+            raise
         except Exception as e:
-            logger.error(f"处理图片审核规则出错: {e}")
+            logger.error(
+                f"处理图片审核规则出错: {type(e).__name__}: {e!r}, "
+                f"gid={gid}, uid={event.user_id}, result={result}"
+            )
             continue
 
         # ==========================================================
@@ -280,13 +382,8 @@ async def send_pics_ban(
         notice: str = '发送了违规图片,现对你进行处罚,有异议请联系管理员'):
     gid = event.group_id
     uid = [event.user_id]
-    eid = event.message_id
     if recall:
-        try:
-            await bot.delete_msg(message_id=eid)
-            logger.info('检测到违规图片，撤回成功')
-        except ActionFailed:
-            logger.info('检测到违规图片，但权限不足，撤回失败')
+        await recall_event_message(bot, event, log_prefix="检测到违规图片", retries=1)
     if not mute:
         return
     baning = mute_sb(bot, gid, lst=uid, time=time)

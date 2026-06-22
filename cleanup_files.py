@@ -9,7 +9,7 @@ from random import randint
 from nonebot import on_command, logger
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 from nonebot.adapters.onebot.v11.exception import ActionFailed
-from nonebot.adapters.onebot.v11.permission import GROUP_OWNER
+from nonebot.adapters.onebot.v11.permission import GROUP_ADMIN, GROUP_OWNER
 from nonebot.matcher import Matcher
 from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
@@ -21,22 +21,58 @@ from .utils import fi
 
 PROTECTED_EXTS = {'.sc2replay'}
 MAX_DISPLAY = 30
+SORT_BY_SIZE = 'size'
+SORT_TIME_ASC = 'time_asc'
+SORT_TIME_DESC = 'time_desc'
+SORT_ALIASES = {
+    'time': SORT_TIME_ASC,
+    'time_asc': SORT_TIME_ASC,
+    'asc': SORT_TIME_ASC,
+    'old': SORT_TIME_ASC,
+    'oldest': SORT_TIME_ASC,
+    '时间': SORT_TIME_ASC,
+    '按时间': SORT_TIME_ASC,
+    '时间顺序': SORT_TIME_ASC,
+    '时间正序': SORT_TIME_ASC,
+    '正序': SORT_TIME_ASC,
+    '旧到新': SORT_TIME_ASC,
+    '由旧到新': SORT_TIME_ASC,
+    '最旧': SORT_TIME_ASC,
+    '最早': SORT_TIME_ASC,
+    '上传正序': SORT_TIME_ASC,
+    'time_desc': SORT_TIME_DESC,
+    'desc': SORT_TIME_DESC,
+    'new': SORT_TIME_DESC,
+    'newest': SORT_TIME_DESC,
+    '时间倒序': SORT_TIME_DESC,
+    '倒序': SORT_TIME_DESC,
+    '新到旧': SORT_TIME_DESC,
+    '由新到旧': SORT_TIME_DESC,
+    '最新': SORT_TIME_DESC,
+    '最近': SORT_TIME_DESC,
+    '上传倒序': SORT_TIME_DESC,
+}
 
 
 def _parse_args(text: str):
     exts = []
     min_size = 0
+    sort_mode = SORT_BY_SIZE
     for part in text.split():
         part = part.strip()
         if not part:
+            continue
+        normalized = part.lower()
+        if normalized in SORT_ALIASES:
+            sort_mode = SORT_ALIASES[normalized]
             continue
         if part.startswith('>') and part[1:].replace('.', '', 1).isdigit():
             min_size = float(part[1:]) * 1024 * 1024
         elif part.startswith('.'):
             exts.append(part.lower())
         else:
-            return None, None, f'无法识别参数「{part}」'
-    return exts, min_size, None
+            return None, None, None, f'无法识别参数「{part}」'
+    return exts, min_size, sort_mode, None
 
 
 def _get_ext(filename: str) -> str:
@@ -114,6 +150,68 @@ def _normalize_folder(item: dict, parent_folder: str):
 
 def _file_size(file: dict) -> int:
     return _as_int(file.get('file_size', file.get('size', file.get('fileSize', 0))))
+
+
+def _parse_timestamp(value) -> int:
+    if value is None or value == '':
+        return 0
+    try:
+        ts = float(value)
+    except (TypeError, ValueError):
+        try:
+            ts = datetime.fromisoformat(str(value).strip().replace('Z', '+00:00')).timestamp()
+        except (TypeError, ValueError):
+            return 0
+    if ts > 10_000_000_000:
+        ts = ts / 1000
+    if ts < 0:
+        return 0
+    return int(ts)
+
+
+def _file_timestamp(file: dict) -> int:
+    for key in (
+        'upload_time', 'uploadTime', 'uploaded_at', 'uploadedAt',
+        'create_time', 'createTime', 'created_at', 'createdAt',
+        'modify_time', 'modifyTime', 'last_modify_time', 'lastModifyTime',
+        'update_time', 'updateTime', 'updated_at', 'updatedAt',
+        'time',
+    ):
+        ts = _parse_timestamp(file.get(key))
+        if ts:
+            return ts
+    return 0
+
+
+def _format_file_date(file: dict) -> str:
+    ts = _file_timestamp(file)
+    return datetime.fromtimestamp(ts).strftime('%Y-%m-%d') if ts else '未知'
+
+
+def _time_asc_key(file: dict):
+    ts = _file_timestamp(file)
+    return (ts <= 0, ts)
+
+
+def _time_desc_key(file: dict):
+    ts = _file_timestamp(file)
+    return (ts <= 0, -ts)
+
+
+def _sort_files(files: list[dict], sort_mode: str) -> list[dict]:
+    if sort_mode == SORT_TIME_ASC:
+        return sorted(files, key=_time_asc_key)
+    if sort_mode == SORT_TIME_DESC:
+        return sorted(files, key=_time_desc_key)
+    return sorted(files, key=_file_size, reverse=True)
+
+
+def _sort_desc(sort_mode: str) -> str:
+    if sort_mode == SORT_TIME_ASC:
+        return '按时间旧到新'
+    if sort_mode == SORT_TIME_DESC:
+        return '按时间新到旧'
+    return '按大小从大到小'
 
 
 def _file_key(file: dict):
@@ -340,7 +438,8 @@ async def _collect_files(bot: Bot, gid: int) -> list[dict]:
     return deduped
 
 
-def _filter_files(files: list[dict], exts: list[str], min_size: float) -> list[dict]:
+def _filter_files(files: list[dict], exts: list[str], min_size: float,
+                  sort_mode: str = SORT_BY_SIZE) -> list[dict]:
     result = []
     for f in files:
         ext = _get_ext(f.get('file_name', ''))
@@ -351,12 +450,11 @@ def _filter_files(files: list[dict], exts: list[str], min_size: float) -> list[d
         if min_size and _file_size(f) < min_size:
             continue
         result.append(f)
-    result.sort(key=_file_size, reverse=True)
-    return result
+    return _sort_files(result, sort_mode)
 
 
 cleanup_files_cmd = on_command('清理群文件', priority=2, block=True,
-                               permission=SUPERUSER | GROUP_OWNER)
+                               permission=SUPERUSER | GROUP_ADMIN | GROUP_OWNER)
 
 HELP_TEXT = (
     '【清理群文件】用法：\n'
@@ -364,6 +462,8 @@ HELP_TEXT = (
     '  /清理群文件 .exe >5    — 清理 .exe 且 >5MB\n'
     '  /清理群文件 .exe .zip  — 清理所有 .exe 和 .zip\n'
     '  /清理群文件 .exe .zip .apk >5 — 组合使用\n\n'
+    '  /清理群文件 >10 时间正序 — 按上传时间从旧到新清理\n'
+    '  /清理群文件 .zip 时间倒序 — 按上传时间从新到旧清理\n\n'
     '注意：.SC2Replay 文件始终受保护，不会被清理'
 )
 
@@ -375,7 +475,7 @@ async def handle_first(bot: Bot, event: GroupMessageEvent, matcher: Matcher,
     if not text:
         await matcher.finish(HELP_TEXT)
 
-    exts, min_size, err = _parse_args(text)
+    exts, min_size, sort_mode, err = _parse_args(text)
     if err:
         await matcher.finish(f'{err}\n\n{HELP_TEXT}')
 
@@ -393,7 +493,7 @@ async def handle_first(bot: Bot, event: GroupMessageEvent, matcher: Matcher,
         lock.unlink(missing_ok=True)
         await matcher.finish('未获取到任何群文件')
 
-    to_delete = _filter_files(all_files, exts, min_size)
+    to_delete = _filter_files(all_files, exts, min_size, sort_mode)
     if not to_delete:
         lock.unlink(missing_ok=True)
         cond = []
@@ -401,16 +501,17 @@ async def handle_first(bot: Bot, event: GroupMessageEvent, matcher: Matcher,
             cond.append(f'格式：{" ".join(exts)}')
         if min_size:
             cond.append(f'大于{_format_size(int(min_size))}')
+        if sort_mode != SORT_BY_SIZE:
+            cond.append(_sort_desc(sort_mode))
         await matcher.finish(f'没有找到符合条件的文件（{", ".join(cond) if cond else "无限制"}）')
 
     total_size = sum(_file_size(f) for f in to_delete)
-    lines = [f'找到 {len(to_delete)} 个文件，共 {_format_size(total_size)}：\n']
+    lines = [f'找到 {len(to_delete)} 个文件，共 {_format_size(total_size)}（{_sort_desc(sort_mode)}）：\n']
     for i, f in enumerate(to_delete[:MAX_DISPLAY], 1):
         name = f['file_name']
         size = _format_size(_file_size(f))
         folder = f.get('_folder', '/')
-        upload_time = f.get('upload_time', 0)
-        date_str = datetime.fromtimestamp(upload_time).strftime('%Y-%m-%d') if upload_time else '未知'
+        date_str = _format_file_date(f)
         lines.append(f"{i}. [{folder}] {name} ({size}) {date_str}")
     if len(to_delete) > MAX_DISPLAY:
         lines.append(f'\n...还有 {len(to_delete) - MAX_DISPLAY} 个文件未显示')
